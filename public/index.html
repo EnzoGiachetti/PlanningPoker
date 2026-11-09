@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planning Poker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #09090b;
+            color: #f8fafc;
+            font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app" class="min-h-screen p-8 flex flex-col items-center">
+        <!-- Tela de Login da Sala -->
+        <div v-if="!joined"
+            class="w-full max-w-md bg-neutral-900 p-8 rounded-xl border border-neutral-800 shadow-2xl mt-20">
+            <h1 class="text-2xl font-bold mb-6 text-center">Planning Poker</h1>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-neutral-400 mb-1">Seu Nome</label>
+                    <input v-model="userName" type="text"
+                        class="w-full bg-neutral-950 border border-neutral-800 rounded px-4 py-2 focus:outline-none focus:border-blue-500"
+                        placeholder="Ex: João">
+                </div>
+                <div>
+                    <label class="block text-sm text-neutral-400 mb-1">Papel Inicial</label>
+                    <select v-model="role"
+                        class="w-full bg-neutral-950 border border-neutral-800 rounded px-4 py-2 focus:outline-none focus:border-blue-500">
+                        <option value="voter">Votante</option>
+                        <option value="spectator">Espectador</option>
+                    </select>
+                </div>
+
+                <!-- Seletor Criar / Entrar -->
+                <div class="flex gap-2 p-1 bg-neutral-950 border border-neutral-800 rounded-lg my-6">
+                    <button @click="actionType = 'create'"
+                        :class="actionType === 'create' ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:text-neutral-300'"
+                        class="flex-1 py-2 rounded-md text-sm font-medium transition-colors">
+                        Criar Nova Sala
+                    </button>
+                    <button @click="actionType = 'join'"
+                        :class="actionType === 'join' ? 'bg-neutral-800 text-white' : 'text-neutral-500 hover:text-neutral-300'"
+                        class="flex-1 py-2 rounded-md text-sm font-medium transition-colors">
+                        Entrar em Sala
+                    </button>
+                </div>
+
+                <!-- Ação: Criar Sala -->
+                <div v-if="actionType === 'create'">
+                    <button @click="createRoom"
+                        class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded transition-colors">
+                        Gerar e Entrar
+                    </button>
+                </div>
+
+                <!-- Ação: Entrar em Sala Existente -->
+                <div v-if="actionType === 'join'" class="space-y-4">
+                    <div>
+                        <label class="block text-sm text-neutral-400 mb-1">ID da Sala</label>
+                        <input v-model="roomId" type="text"
+                            class="w-full bg-neutral-950 border border-neutral-800 rounded px-4 py-2 focus:outline-none focus:border-blue-500"
+                            placeholder="Ex: a8b3nf">
+                    </div>
+                    <button @click="joinRoom"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded transition-colors">
+                        Acessar Sala
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tela da Sala (Inalterada) -->
+        <div v-else class="w-full max-w-5xl">
+            <div
+                class="flex flex-col md:flex-row justify-between items-center mb-8 bg-neutral-900 p-4 rounded-xl border border-neutral-800 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold">Sala: <span
+                            class="text-blue-400 bg-blue-900/30 px-2 py-1 rounded select-all">{{ roomId }}</span></h2>
+                    <p class="text-sm text-neutral-400 mt-1">Logado como: {{ userName }}</p>
+                </div>
+                <div class="flex gap-4 items-center w-full md:w-auto">
+                    <select :value="roomState.scaleType" @change="changeScale($event.target.value)"
+                        class="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm w-full md:w-auto">
+                        <option value="fibonacci">Fibonacci (1,2,3,5,8...)</option>
+                        <option value="tshirt">T-Shirt (PP,P,M,G,GG)</option>
+                        <option value="custom">Custom (1-10)</option>
+                    </select>
+                    <button @click="toggleRole"
+                        class="text-sm bg-neutral-800 hover:bg-neutral-700 px-3 py-2 rounded whitespace-nowrap">
+                        Mudar para {{ role === 'voter' ? 'Espectador' : 'Votante' }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cartas de Votação -->
+            <div v-if="role === 'voter'" class="mb-12">
+                <h3 class="text-lg mb-4 font-semibold text-center text-neutral-300">Escolha seu voto</h3>
+                <div class="flex flex-wrap justify-center gap-4">
+                    <button v-for="card in scales[roomState.scaleType]" :key="card" @click="vote(card)" :class="[
+                            'w-16 h-24 rounded-lg border-2 flex items-center justify-center text-xl font-bold transition-all',
+                            myVote === card ? 'border-blue-500 bg-blue-500/20 text-blue-400 transform -translate-y-2' : 'border-neutral-700 bg-neutral-900 hover:border-neutral-500 hover:bg-neutral-800'
+                        ]">
+                        {{ card }}
+                    </button>
+                </div>
+            </div>
+
+            <!-- Mesa / Lista de Usuários -->
+            <div class="bg-neutral-900 p-6 rounded-xl border border-neutral-800">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-semibold">Participantes ({{ Object.keys(roomState.users || {}).length }})
+                    </h3>
+                    <div class="flex gap-2">
+                        <button @click="reset"
+                            class="bg-neutral-800 hover:bg-neutral-700 px-4 py-2 rounded text-sm transition-colors">Nova
+                            Rodada</button>
+                        <button @click="reveal"
+                            class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm font-semibold transition-colors">Revelar
+                            Votos</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div v-for="user in roomState.users" :key="user.id"
+                        class="bg-neutral-950 p-4 rounded-lg border border-neutral-800 flex flex-col items-center justify-center min-h-[120px]">
+                        <span class="font-medium text-center mb-2">{{ user.name }} <span
+                                v-if="user.role === 'spectator'" class="text-xs text-neutral-500 block mt-1">👀
+                                Espectador</span></span>
+
+                        <div v-if="user.role === 'voter'" class="mt-2">
+                            <span v-if="roomState.revealed" class="text-2xl font-bold text-blue-400">{{ user.vote || '?'
+                                }}</span>
+                            <span v-else-if="user.vote" class="text-green-500 text-sm">✅ Votou</span>
+                            <span v-else class="text-neutral-500 text-sm">⏳ Pensando...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed } = Vue;
+        const socket = io();
+
+        createApp({
+            setup() {
+                const joined = ref(false);
+                const userName = ref('');
+                const roomId = ref('');
+                const role = ref('voter');
+                const actionType = ref('create'); // 'create' ou 'join'
+                const roomState = ref({ users: {}, revealed: false, scaleType: 'fibonacci' });
+
+                const scales = {
+                    fibonacci: ['0', '1', '2', '3', '5', '8', '13', '21', '☕', '?'],
+                    tshirt: ['PP', 'P', 'M', 'G', 'GG', 'XG', '☕', '?'],
+                    custom: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '?']
+                };
+
+                socket.on('roomUpdate', (state) => {
+                    roomState.value = state;
+                });
+
+                // Função para gerar um ID aleatório curto
+                const generateRoomId = () => Math.random().toString(36).substring(2, 8);
+
+                const createRoom = () => {
+                    if (!userName.value) return alert('Preencha seu nome!');
+                    roomId.value = generateRoomId();
+                    socket.emit('joinRoom', { roomId: roomId.value, user: { name: userName.value, role: role.value } });
+                    joined.value = true;
+                };
+
+                const joinRoom = () => {
+                    if (!userName.value || !roomId.value) return alert('Preencha nome e ID da sala!');
+                    socket.emit('joinRoom', { roomId: roomId.value, user: { name: userName.value, role: role.value } });
+                    joined.value = true;
+                };
+
+                const toggleRole = () => {
+                    role.value = role.value === 'voter' ? 'spectator' : 'voter';
+                    socket.emit('changeRole', { roomId: roomId.value, role: role.value });
+                };
+
+                const vote = (value) => {
+                    if (roomState.value.revealed) return;
+                    socket.emit('vote', { roomId: roomId.value, vote: value });
+                };
+
+                const reveal = () => socket.emit('reveal', roomId.value);
+                const reset = () => socket.emit('reset', roomId.value);
+                const changeScale = (type) => socket.emit('changeScale', { roomId: roomId.value, scaleType: type });
+
+                const myVote = computed(() => {
+                    if (!roomState.value.users[socket.id]) return null;
+                    return roomState.value.users[socket.id].vote;
+                });
+
+                return {
+                    joined, userName, roomId, role, actionType, roomState, scales,
+                    createRoom, joinRoom, toggleRole, vote, reveal, reset, changeScale, myVote
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>
